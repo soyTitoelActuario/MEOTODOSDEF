@@ -7,11 +7,12 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-from scipy.stats import kurtosis, skew, norm, t
-import scipy.stats as stats
+from scipy.stats import kurtosis, skew ,norm,t
+import scipy.stats as stats 
+from scipy.stats import t
 
-# Usar caché para funciones que descargan o procesan datos
-@st.cache_data(ttl=3600)  # Caché con tiempo de vida de 1 hora
+#FUNCIONES 
+
 def obtener_datos(stocks):
     '''
     El objetivo de esta funcion es descargar el precio
@@ -20,21 +21,18 @@ def obtener_datos(stocks):
     df = yf.download(stocks, start="2010-01-01", end=datetime.now().strftime('%Y-%m-%d'))['Close']
     return df
 
-@st.cache_data
 def calcular_rendimientos(df):
     '''
     Calcula los rendimientos de un activo
     '''
     return df.pct_change().dropna()
 
-@st.cache_data
 def calcular_rendimientos_log(df):
     '''
     Funcion que calcula los rendimientos logarítmicos de un activo.
     '''
     return np.log(df / df.shift(1)).dropna()
 
-@st.cache_data
 def calcular_metricas(df):
     '''
     Funcion que Determina la variación porcentual diaria entre los precios,
@@ -45,14 +43,12 @@ def calcular_metricas(df):
     normalized_prices = df / df.iloc[0] * 100
     return returns, cumulative_returns, normalized_prices
 
-@st.cache_data
 def calcular_var(returns, alpha=0.95):
     """
     Calcula el VaR histórico como el percentil empírico de los rendimientos.
     """
     return np.percentile(returns, (1 - alpha) * 100)
 
-@st.cache_data
 def calcular_cvar(returns, alpha=0.95):
     """
     Calcula el CVaR (Expected Shortfall) usando datos históricos.
@@ -61,104 +57,17 @@ def calcular_cvar(returns, alpha=0.95):
     cvar = returns[returns <= var].mean()  # Promedio de pérdidas más extremas
     return cvar
 
-# Funciones adicionales con caché
-@st.cache_data
-def calcular_var_historico(rendimientos, alpha):
-    """VaR por método histórico: percentil de los rendimientos"""
-    return np.percentile(rendimientos, (1 - alpha) * 100)
 
-@st.cache_data
-def calcular_cvar_historico(rendimientos, alpha):
-    """CVaR por método histórico: media de pérdidas más extremas"""
-    var = calcular_var_historico(rendimientos, alpha)
-    return rendimientos[rendimientos <= var].mean()
-
-@st.cache_data
-def calcular_var_parametrico(rendimientos, alpha):
-    """VaR paramétrico: usa la media y desviación estándar de los rendimientos"""
-    mu, sigma = np.mean(rendimientos), np.std(rendimientos)
-    z_score = stats.norm.ppf(1 - alpha)  # Cuantil de la normal
-    return mu + z_score * sigma
-
-@st.cache_data
-def calcular_cvar_parametrico(rendimientos, alpha):
-    """CVaR paramétrico: basado en la distribución normal"""
-    mu, sigma = np.mean(rendimientos), np.std(rendimientos)
-    z_score = stats.norm.ppf(1 - alpha)
-    pdf_z = stats.norm.pdf(z_score)
-    cvar = mu - sigma * (pdf_z / (1 - alpha))  # Fórmula de CVaR en normal
-    return cvar
-
-@st.cache_data
-def calcular_rolling_var_cvar(_returns, window_size, alpha, metodo):
-    """Calcula VaR y CVaR con ventana móvil"""
-    returns_series = _returns.copy()
-    var_series = []
-    cvar_series = []
-    tail_prob = 1 - alpha
-    
-    for i in range(window_size, len(returns_series)):
-        window_data = returns_series.iloc[i-window_size:i]
-        mean = window_data.mean()
-        std = window_data.std()
-
-        if metodo == "Normal":
-            z = stats.norm.ppf(tail_prob)
-            VaR_val = - (mean + std * z)
-            ES_val = -mean + std * (stats.norm.pdf(z) / tail_prob)
-
-        elif metodo == "t-Student":
-            df_fit, loc_fit, scale_fit = stats.t.fit(window_data)
-            q_t = stats.t.ppf(tail_prob, df_fit, loc=loc_fit, scale=scale_fit)
-            VaR_val = - q_t
-
-            try:
-                E_xt = stats.t.expect(
-                    lambda x: x,
-                    args=(df_fit,),
-                    loc=loc_fit,
-                    scale=scale_fit,
-                    lb=-np.inf,
-                    ub=q_t,
-                    conditional=True
-                )
-                ES_val = - E_xt
-            except Exception:
-                # Usar una muestra más pequeña para la simulación
-                sim_t = loc_fit + scale_fit * np.random.standard_t(df_fit, size=5000)
-                ES_val = - sim_t[sim_t <= q_t].mean()
-
-        elif metodo == "Histórico":
-            q_hist = np.quantile(window_data, tail_prob)
-            VaR_val = - q_hist
-            ES_val = - window_data[window_data <= q_hist].mean()
-
-        else:  # Monte Carlo
-            np.random.seed(42)
-            # Reducir el número de simulaciones
-            sim_norm = np.random.normal(mean, std, 5000)
-            q_mc = np.percentile(sim_norm, tail_prob * 100)
-            VaR_val = - q_mc
-            ES_val = - sim_norm[sim_norm <= q_mc].mean()
-
-        var_series.append(VaR_val)
-        cvar_series.append(ES_val)
-
-    fechas = returns_series.index[window_size:]
-    return pd.Series(var_series, index=fechas), pd.Series(cvar_series, index=fechas)
 
 # Configuración de la página de Streamlit
-st.set_page_config(page_title="Métricas de acciones", layout="wide")
+st.set_page_config(page_title="Metricas de acciones", layout="wide")
 
 # Crear pestañas
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Métricas básicas y rendimientos", "VaR & CVaR", "Rolling Windows", "Violaciones", "VaR Volatilidad Móvil"])
-
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Metricas básicas y rendimientos", "Var & cVaR", "Rolling Windows", "Violaciones", "VaR Volatilidad Móvil"])
 # Título en la barra lateral
 st.sidebar.title("Analizador de Métricas")
-
 # Crea un cuadro de texto en la barra lateral para ingresar los símbolos de acciones 
 simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,GOOGL,MSFT,AMZN,NVDA")
-
 # Convierte el texto ingresado en una lista de símbolos
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 
@@ -173,14 +82,8 @@ benchmark_options = {
 selected_benchmark = st.sidebar.selectbox("Seleccione el benchmark:", list(benchmark_options.keys()))
 benchmark = benchmark_options[selected_benchmark]
 
-# Cargar datos una vez al inicio
-@st.cache_data(ttl=3600)
-def load_initial_data(all_symbols):
-    return obtener_datos(all_symbols)
 
-# Cargar todos los datos al inicio
-all_symbols = simbolos + [benchmark]
-df_precios_all = load_initial_data(all_symbols)
+# Para las pestañas
 
 # Pestaña 1
 with tab1:
@@ -191,13 +94,13 @@ with tab1:
         key="selected_asset"  # Almacenamos en session_state
     )
     
-    # Usar los datos ya cargados
-    df_precios = df_precios_all[selected_asset].to_frame()
+    # Obtener datos y calcular rendimientos solo para el activo seleccionado
+    df_precios = obtener_datos([selected_asset])  # Se pasa la lista con un solo activo
     df_rendimientos = calcular_rendimientos(df_precios)
     df_rendimientos_log = calcular_rendimientos_log(df_precios)
 
     # Diccionario para almacenar los promedios de rendimiento
-    promedio_rendi_diario = df_rendimientos[selected_asset].mean()
+    promedios_rendi_diario = {stock: df_rendimientos[stock].mean() for stock in [selected_asset]}
     
     # Calcular el sesgo y la kurtosis para el activo seleccionado
     skew_rendi_diario = df_rendimientos[selected_asset].skew()  # Sesgo para el activo seleccionado
@@ -206,23 +109,44 @@ with tab1:
     # Crear columnas para mostrar métricas
     col1, col2, col3 = st.columns(3)
     col4, col5 = st.columns(2)
-    
     # Mostrar métricas para el activo seleccionado
-    promedio_anualizado = (1 + promedio_rendi_diario) ** 252 - 1  # Convertir a rendimiento anualizado
-    col1.metric("Rendimiento promedio diario", f"{promedio_rendi_diario:.5%}")
-    col2.metric("Rendimiento anualizado", f"{promedio_anualizado:.2%}")
-    col3.metric("Último precio en moneda de la acción correspondiente", f"${df_precios[selected_asset].iloc[-1]:.2f}")
-    col4.metric(f"Sesgo de {selected_asset}", f"{skew_rendi_diario:.5f}")
-    col5.metric(f"Kurtosis de {selected_asset}", f"{kurtosis_rendi_diario:.5f}")
+    if selected_asset:
+        promedio_diario = promedios_rendi_diario[selected_asset]
+        promedio_anualizado = (1 + promedio_diario) ** 252 - 1  # Convertir a rendimiento anualizado
+        col1.metric("Rendimiento promedio diario", f"{promedio_diario:.5%}")
+        col2.metric("Rendimiento anualizado", f"{promedio_anualizado:.2%}")
+        col3.metric("Último precio en moneda de la acción correspondiente", f"${df_precios[selected_asset].iloc[-1]:.2f}")
+        col4.metric(f"Sesgo de {selected_asset}", f"{skew_rendi_diario:.5f}")
+        col5.metric(f"Kurtosis de {selected_asset}", f"{kurtosis_rendi_diario:.5f}")
+    else:
+        col1.metric("Rendimiento promedio diario", "N/A")
+        col2.metric("Rendimiento anualizado", "N/A")
+        col3.metric("Último precio", "N/A")
+        col4.metric(f"Sesgo de {selected_asset}", "N/A")
+        col5.metric(f"Kurtosis de {selected_asset}", "N/A")
+    # Datos de países de inversión para ETFs
 
-    # Calcular métricas una vez
-    returns, cumulative_returns, normalized_prices = calcular_metricas(df_precios_all[[selected_asset, benchmark]])
+    etf_country_data = {
+        'S&P 500': ['United States'],
+        'Nasdaq': ['United States'],
+        'Dow Jones': ['United States'],
+        'Russell 2000': ['United States'],
+        'ACWI': ['Global']
+    }
+    
+    # Mostrar el ETF seleccionado en un metric
+    #st.subheader("ETF seleccionado", selected_benchmark)
+
+
+    all_symbols = simbolos + [benchmark]
+    df_stocks = obtener_datos(all_symbols)
+    returns, cumulative_returns, normalized_prices = calcular_metricas(df_stocks)
     
     fig_asset = go.Figure()
     fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[selected_asset], name=selected_asset))
     fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[benchmark], name=selected_benchmark))
     fig_asset.update_layout(title=f'Precio Normalizado: {selected_asset} vs {selected_benchmark} (Base 100)', xaxis_title='Fecha', yaxis_title='Precio Normalizado')
-    st.plotly_chart(fig_asset, use_container_width=True)
+    st.plotly_chart(fig_asset, use_container_width=True, key="price_normalized")
         
     # Mostrar los datos en la página para el activo seleccionado
     st.subheader("Últimos 5 Datos de Precios")
@@ -238,16 +162,14 @@ with tab1:
 with tab2:
     with st.sidebar:
         st.header("Cálculo de VaR y CVaR")
-        selected_asset_2 = st.selectbox(
+        selected_asset = st.selectbox(
             "Seleccione el activo (debe ser el mismo que en Análisis del activo)", 
             simbolos, 
-            index=simbolos.index(st.session_state.get("selected_asset", simbolos[0])),
+            index=simbolos.index(st.session_state["selected_asset"]),
             key="selected_asset_2"
         )
-    
     # Mostrar sobre qué activo se está realizando el cálculo
-    st.subheader(f"Análisis de VaR y CVaR para el activo: {selected_asset_2}")  
-    
+    st.subheader(f"Análisis de VaR y CVaR para el activo: {selected_asset}")  
     # Selector de nivel de confianza
     alpha_options = {
         "95%": 0.95,
@@ -259,29 +181,24 @@ with tab2:
     
     # El percentil para el cálculo del VaR
     percentil = 100 - alpha * 100
-    
-    # Asegurarse de que el activo existe en los datos
-    if selected_asset_2 in df_precios_all.columns:
-        df_rendimientos_asset = calcular_rendimientos(df_precios_all[selected_asset_2].to_frame())
-        returns_series = df_rendimientos_asset[selected_asset_2]
-        
-        mean = np.mean(returns_series)
-        stdev = np.std(returns_series)
+    if selected_asset:
+        mean = np.mean(df_rendimientos[selected_asset])
+        stdev = np.std(df_rendimientos[selected_asset])
         
         # Paramétrico (Normal) VaR
         VaR_param = norm.ppf(1 - alpha, mean, stdev)
         
         # Historical VaR
-        hVaR = returns_series.quantile(1 - alpha)
+        hVaR = df_rendimientos[selected_asset].quantile(1 - alpha)
         
-        # Monte Carlo VaR - reducido a 10,000 simulaciones
-        n_sims = 10000
+        # Monte Carlo VaR
+        n_sims = 100000
         np.random.seed(42)  # Para reproducibilidad
         sim_returns = np.random.normal(mean, stdev, n_sims)
         MCVaR = np.percentile(sim_returns, percentil)
         
         # CVaR (Expected Shortfall)
-        CVaR = returns_series[returns_series <= hVaR].mean()
+        CVaR = df_rendimientos[selected_asset][df_rendimientos[selected_asset] <= hVaR].mean()
         
         # Mostrar métricas en Streamlit
         st.subheader("Métricas de riesgo")
@@ -295,33 +212,30 @@ with tab2:
         # Visualización gráfica
         st.subheader("Gráfica métricas de riesgo")
         
-        @st.cache_data
-        def plot_var_histogram(returns_series, VaR_param, MCVaR, hVaR, CVaR, alpha):
-            fig, ax = plt.subplots(figsize=(13, 5))
-            
-            # Generar histograma
-            n, bins, patches = ax.hist(returns_series, bins=50, color='blue', alpha=0.7, label='Returns')
-            
-            # Identificar y colorear de rojo las barras a la izquierda de hVaR
-            for bin_left, bin_right, patch in zip(bins, bins[1:], patches):
-                if bin_left < hVaR:
-                    patch.set_facecolor('red')
-            
-            # Marcar las líneas de VaR y CVaR
-            ax.axvline(x=VaR_param, color='skyblue', linestyle='--', label=f'VaR {int(alpha*100)}% (Paramétrico)')
-            ax.axvline(x=MCVaR, color='grey', linestyle='--', label=f'VaR {int(alpha*100)}% (Monte Carlo)')
-            ax.axvline(x=hVaR, color='green', linestyle='--', label=f'VaR {int(alpha*100)}% (Histórico)')
-            ax.axvline(x=CVaR, color='purple', linestyle='-.', label=f'CVaR {int(alpha*100)}%')
-            
-            # Configurar etiquetas y leyenda
-            ax.set_title(f"Histograma de Rendimientos con VaR y CVaR para {selected_asset_2}")
-            ax.set_xlabel("Rendimiento Diario")
-            ax.set_ylabel("Frecuencia")
-            ax.legend()
-            
-            return fig
+        # Crear la figura y el eje
+        fig, ax = plt.subplots(figsize=(13, 5))
         
-        fig = plot_var_histogram(returns_series, VaR_param, MCVaR, hVaR, CVaR, alpha)
+        # Generar histograma
+        n, bins, patches = ax.hist(df_rendimientos[selected_asset], bins=50, color='blue', alpha=0.7, label='Returns')
+        
+        # Identificar y colorear de rojo las barras a la izquierda de hVaR
+        for bin_left, bin_right, patch in zip(bins, bins[1:], patches):
+            if bin_left < hVaR:
+                patch.set_facecolor('red')
+        
+        # Marcar las líneas de VaR y CVaR
+        ax.axvline(x=VaR_param, color='skyblue', linestyle='--', label=f'VaR {int(alpha*100)}% (Paramétrico)')
+        ax.axvline(x=MCVaR, color='grey', linestyle='--', label=f'VaR {int(alpha*100)}% (Monte Carlo)')
+        ax.axvline(x=hVaR, color='green', linestyle='--', label=f'VaR {int(alpha*100)}% (Histórico)')
+        ax.axvline(x=CVaR, color='purple', linestyle='-.', label=f'CVaR {int(alpha*100)}%')
+        
+        # Configurar etiquetas y leyenda
+        ax.set_title(f"Histograma de Rendimientos con VaR y CVaR para {selected_asset}")
+        ax.set_xlabel("Rendimiento Diario")
+        ax.set_ylabel("Frecuencia")
+        ax.legend()
+        
+        # Mostrar la figura en Streamlit
         st.pyplot(fig)
         
         # Agregar explicación básica
@@ -337,169 +251,198 @@ with tab2:
 
     else:
         st.write("Seleccione un activo para visualizar sus métricas de riesgo.")
+        st.write("Seleccione un activo para visualizar sus métricas de riesgo.")
 
-# Pestaña 3
+# Pestaña3
+
+# Funciones para calcular VaR y CVaR
+def calcular_var_historico(rendimientos, alpha):
+    """VaR por método histórico: percentil de los rendimientos"""
+    return np.percentile(rendimientos, (1 - alpha) * 100)
+
+def calcular_cvar_historico(rendimientos, alpha):
+    """CVaR por método histórico: media de pérdidas más extremas"""
+    var = calcular_var_historico(rendimientos, alpha)
+    return rendimientos[rendimientos <= var].mean()
+
+def calcular_var_parametrico(rendimientos, alpha):
+    """VaR paramétrico: usa la media y desviación estándar de los rendimientos"""
+    mu, sigma = np.mean(rendimientos), np.std(rendimientos)
+    z_score = stats.norm.ppf(1 - alpha)  # Cuantil de la normal
+    return mu + z_score * sigma
+
+def calcular_cvar_parametrico(rendimientos, alpha):
+    """CVaR paramétrico: basado en la distribución normal"""
+    mu, sigma = np.mean(rendimientos), np.std(rendimientos)
+    z_score = stats.norm.ppf(1 - alpha)
+    pdf_z = stats.norm.pdf(z_score)
+    cvar = mu - sigma * (pdf_z / (1 - alpha))  # Fórmula de CVaR en normal
+    return cvar
+
 with tab3:
-    st.header(f"VaR y CVaR con Rolling Windows (Histórico y Paramétrico)")
-    
-    selected_asset_3 = st.selectbox(
-        "Seleccione el activo:", 
-        simbolos, 
-        index=simbolos.index(st.session_state.get("selected_asset", simbolos[0])),
-        key="selected_asset_3"
-    )
-    
+    st.header(f"VaR y CVaR para el activo: {selected_asset} con Rolling Windows (Histórico y Paramétrico)")
+
     window_size = 252
-    
-    if selected_asset_3 in df_precios_all.columns:
-        df_rendimientos_asset = calcular_rendimientos(df_precios_all[selected_asset_3].to_frame())
-        returns_series = df_rendimientos_asset[selected_asset_3].dropna()
-        
-        # Limitamos los niveles de confianza y métodos para reducir carga
-        niveles_confianza = [0.95, 0.99]
-        metodos = ["Normal", "Histórico"]
-        
-        colores = {
-            "Normal": "blue",
-            "t-Student": "orange",
-            "Histórico": "green",
-            "Monte Carlo": "red"
-        }
-        
-        resultados_finales = {}
-        
-        for alpha in niveles_confianza:
-            tail_prob = 1 - alpha
-            conf_label = f"{alpha*100:.3g}"
-            
-            st.subheader(f"Series de VaR y CVaR para nivel de confianza {conf_label}%")
-            
-            # Crear un contenedor para mostrar un indicador de progreso
-            progress_container = st.empty()
-            progress_container.text("Calculando... Por favor espere.")
-            
-            # Acumulamos los resultados para todas las series en una gráfica
-            fig, ax = plt.subplots(figsize=(10, 5))
-            
-            for i, metodo in enumerate(metodos):
-                # Calcular VaR y CVaR con la función cacheada
-                var_series, cvar_series = calcular_rolling_var_cvar(returns_series, window_size, alpha, metodo)
-                
-                ax.plot(var_series, label=f"VaR {metodo}", color=colores.get(metodo, "black"), linewidth=1.2)
-                ax.plot(cvar_series, label=f"CVaR {metodo}", color=colores.get(metodo, "black"), linestyle="--", linewidth=1.2)
-                
-                resultados_finales.setdefault(metodo, {})
-                resultados_finales[metodo][f"VaR {conf_label}%"] = var_series.iloc[-1]
-                resultados_finales[metodo][f"CVaR {conf_label}%"] = cvar_series.iloc[-1]
-            
-            # Eliminar el indicador de progreso
-            progress_container.empty()
-            
-            ax.set_title(f"VaR y CVaR ({conf_label}%) - Ventana 252 días - {selected_asset_3}")
-            ax.set_xlabel("Fecha")
-            ax.set_ylabel("Pérdida diaria estimada")
-            ax.legend(loc="upper right", ncol=2)
-            st.pyplot(fig)
-        
-        df_resultados = pd.DataFrame(resultados_finales).T
-        st.write("**Resumen de VaR y CVaR estimados (último valor de cada serie)**")
-        st.dataframe(df_resultados.style.format("{:.2%}"))
-    else:
-        st.write(f"No se encontraron datos para {selected_asset_3}.")
+
+    returns_series = df_rendimientos[selected_asset].dropna()
+
+    niveles_confianza = [0.95, 0.975, 0.99]
+
+    metodos = ["Normal", "t-Student", "Histórico", "Monte Carlo"]
+
+    colores = {
+        "Normal": "blue",
+        "t-Student": "orange",
+        "Histórico": "green",
+        "Monte Carlo": "red"
+    }
+
+    resultados_finales = {}
+
+    for alpha in niveles_confianza:
+
+        tail_prob = 1 - alpha
+        conf_label = f"{alpha*100:.3g}"
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        st.subheader(f"Series de VaR y CVaR para nivel de confianza {conf_label}%")
+
+        for metodo in metodos:
+
+            var_series = []
+            cvar_series = []
+
+            for i in range(window_size, len(returns_series)):
+
+                window_data = returns_series.iloc[i-window_size:i]
+                mean = window_data.mean()
+                std = window_data.std()
+
+                if metodo == "Normal":
+                    z = stats.norm.ppf(tail_prob)
+                    VaR_val = - (mean + std * z)
+                    ES_val = -mean + std * (stats.norm.pdf(z) / tail_prob)
+
+                elif metodo == "t-Student":
+                    df_fit, loc_fit, scale_fit = stats.t.fit(window_data)
+                    q_t = stats.t.ppf(tail_prob, df_fit, loc=loc_fit, scale=scale_fit)
+                    VaR_val = - q_t
+
+                    try:
+                        E_xt = stats.t.expect(
+                            lambda x: x,
+                            args=(df_fit,),
+                            loc=loc_fit,
+                            scale=scale_fit,
+                            lb=-np.inf,
+                            ub=q_t,
+                            conditional=True
+                        )
+                        ES_val = - E_xt
+                    except Exception:
+                        sim_t = loc_fit + scale_fit * np.random.standard_t(df_fit, size=10000)
+                        ES_val = - sim_t[sim_t <= q_t].mean()
+
+                elif metodo == "Histórico":
+                    q_hist = np.quantile(window_data, tail_prob)
+                    VaR_val = - q_hist
+                    ES_val = - window_data[window_data <= q_hist].mean()
+
+                else:  # Monte Carlo
+                    np.random.seed(42)
+                    sim_norm = np.random.normal(mean, std, 10000)
+                    q_mc = np.percentile(sim_norm, tail_prob * 100)
+                    VaR_val = - q_mc
+                    ES_val = - sim_norm[sim_norm <= q_mc].mean()
+
+                var_series.append(VaR_val)
+                cvar_series.append(ES_val)
+
+            fechas = returns_series.index[window_size:]
+            var_series = pd.Series(var_series, index=fechas)
+            cvar_series = pd.Series(cvar_series, index=fechas)
+
+            ax.plot(var_series, label=f"VaR {metodo}", color=colores.get(metodo, "black"), linewidth=1.2)
+            ax.plot(cvar_series, label=f"CVaR {metodo}", color=colores.get(metodo, "black"), linestyle="--", linewidth=1.2)
+
+            resultados_finales.setdefault(metodo, {})
+            resultados_finales[metodo][f"VaR {conf_label}%"] = var_series.iloc[-1]
+            resultados_finales[metodo][f"CVaR {conf_label}%"] = cvar_series.iloc[-1]
+
+        ax.set_title(f"VaR y CVaR ({conf_label}%) - Ventana 252 días - {selected_asset}")
+        ax.set_xlabel("Fecha")
+        ax.set_ylabel("Pérdida diaria estimada")
+        ax.legend(loc="upper right", ncol=2)
+        st.pyplot(fig)
+
+    df_resultados = pd.DataFrame(resultados_finales).T
+    st.write("**Resumen de VaR y CVaR estimados (último valor de cada serie)**")
+    st.dataframe(df_resultados.style.format("{:.2%}"))
+
+
+
+
+
+
+
+
 
 # Pestaña 4
 with tab4:
-    st.header(f"Evaluación de eficiencia de VaR")
-    
-    selected_asset_4 = st.selectbox(
-        "Seleccione el activo:", 
-        simbolos, 
-        index=simbolos.index(st.session_state.get("selected_asset", simbolos[0])),
-        key="selected_asset_4"
-    )
-    
+    st.header(f"Evaluación de eficiencia de VaR para el activo:  {selected_asset} ")
     alpha = st.selectbox("Seleccione nivel de confianza", [0.95, 0.975, 0.99], index=0)
-    
-    if selected_asset_4 in df_precios_all.columns:
-        df_rendimientos_asset = calcular_rendimientos(df_precios_all[selected_asset_4].to_frame())
-        returns_series = df_rendimientos_asset[selected_asset_4]
-        
-        VaR = calcular_var(returns_series, alpha)
-        violaciones = returns_series[returns_series < VaR]
-        porcentaje_violaciones = len(violaciones) / len(returns_series) * 100
-        
-        st.metric("VaR estimado", f"{VaR:.4%}")
-        st.metric("Número de violaciones", f"{len(violaciones)}")
-        st.metric("Porcentaje de violaciones", f"{porcentaje_violaciones:.2f}%")
-        
-        @st.cache_data
-        def plot_violaciones(returns_series, VaR, violaciones):
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(returns_series.index, returns_series, label="Rendimientos", color='blue', alpha=0.5)
-            ax.axhline(y=VaR, color='red', linestyle='--', label=f'VaR {int(alpha*100)}%')
-            ax.scatter(violaciones.index, violaciones, color='red', label='Violaciones', zorder=3)
-            ax.legend()
-            return fig
-        
-        fig = plot_violaciones(returns_series, VaR, violaciones)
-        st.pyplot(fig)
-    else:
-        st.write(f"No se encontraron datos para {selected_asset_4}.")
+    #selected_asset = st.selectbox("Seleccione un activo", simbolos)
+    df_rendimientos = calcular_rendimientos(df_precios[selected_asset])
+
+    VaR = calcular_var(df_rendimientos, alpha)
+    violaciones = df_rendimientos[df_rendimientos < VaR]
+    porcentaje_violaciones = len(violaciones) / len(df_rendimientos) * 100
+
+    st.metric("VaR estimado", f"{VaR:.4%}")
+    st.metric("Número de violaciones", f"{len(violaciones)}")
+    st.metric("Porcentaje de violaciones", f"{porcentaje_violaciones:.2f}%")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+#    ax.plot(df_rendimientos.index, df_rendimientos["columna_rendimientos"], label="Rendimientos", color='blue')
+    ax.axhline(y=VaR, color='red', linestyle='--', label=f'VaR {int(alpha*100)}%')
+    ax.scatter(violaciones.index, violaciones, color='red', label='Violaciones', zorder=3)
+    ax.legend()
+    st.pyplot(fig)
+
 
 # Pestaña 5
 with tab5:
-    st.header(f"VaR con Distribución Normal")
+    st.header(f"VaR del activo:  {selected_asset} con Distribución Normal")
+
+    # Definir niveles de significancia
+    alpha_95 = 0.05
+    alpha_99 = 0.01
+
+    # Calcular los percentiles de la distribución normal
+    q_95 = stats.norm.ppf(alpha_95)  # Percentil para 95%
+    q_99 = stats.norm.ppf(alpha_99)  # Percentil para 99%
+
+    # Tamaño de la ventana fija en 252 días
+    window_size = st.slider("Seleccione tamaño de la ventana", 1, 252, 251)
+
+    # Cálculo de la desviación estándar en ventana móvil de 252 días
+    rolling_std = df_rendimientos.rolling(window=window_size).std()
+
+    # Cálculo del VaR bajo distribución normal
+    df_rolling_var_95 = q_95 * rolling_std
+    df_rolling_var_99 = q_99 * rolling_std
+
+    # Graficar los resultados
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_rolling_var_95, label="VaR 95% (Normal)", color='red')
+    ax.plot(df_rolling_var_99, label="VaR 99% (Normal)", color='blue')
+    ax.legend()
     
-    selected_asset_5 = st.selectbox(
-        "Seleccione el activo:", 
-        simbolos, 
-        index=simbolos.index(st.session_state.get("selected_asset", simbolos[0])),
-        key="selected_asset_5"
-    )
-    
-    if selected_asset_5 in df_precios_all.columns:
-        df_rendimientos_asset = calcular_rendimientos(df_precios_all[selected_asset_5].to_frame())
-        returns_series = df_rendimientos_asset[selected_asset_5]
-        
-        # Definir niveles de significancia
-        alpha_95 = 0.05
-        alpha_99 = 0.01
-        
-        # Calcular los percentiles de la distribución normal
-        q_95 = stats.norm.ppf(alpha_95)  # Percentil para 95%
-        q_99 = stats.norm.ppf(alpha_99)  # Percentil para 99%
-        
-        # Tamaño de la ventana ajustable pero con límite máximo
-        max_window = min(252, len(returns_series) - 10)  # Asegurar que hay suficientes datos
-        window_size = st.slider("Seleccione tamaño de la ventana", 1, max_window, max_window//2)
-        
-        @st.cache_data
-        def calculate_rolling_var(returns_series, window_size, q_95, q_99):
-            # Cálculo de la desviación estándar en ventana móvil
-            rolling_std = returns_series.rolling(window=window_size).std()
-            
-            # Cálculo del VaR bajo distribución normal
-            df_rolling_var_95 = q_95 * rolling_std
-            df_rolling_var_99 = q_99 * rolling_std
-            
-            return df_rolling_var_95, df_rolling_var_99
-        
-        df_rolling_var_95, df_rolling_var_99 = calculate_rolling_var(returns_series, window_size, q_95, q_99)
-        
-        @st.cache_data
-        def plot_rolling_var(df_rolling_var_95, df_rolling_var_99, selected_asset_5):
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(df_rolling_var_95, label="VaR 95% (Normal)", color='red')
-            ax.plot(df_rolling_var_99, label="VaR 99% (Normal)", color='blue')
-            
-            ax.set_title(f"VaR del activo: {selected_asset_5} asumiendo Distribución Normal")
-            ax.set_xlabel("Fecha")
-            ax.set_ylabel("Valor en Riesgo")
-            ax.legend()
-            ax.grid(True)
-            return fig
-        
-        fig = plot_rolling_var(df_rolling_var_95, df_rolling_var_99, selected_asset_5)
-        st.pyplot(fig)
-    else:
-        st.write(f"No se encontraron datos para {selected_asset_5}.")
+    ax.set_title(f"VaR del activo:  {selected_asset} asumiendo Distribución Normal")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("Valor en Riesgo")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
