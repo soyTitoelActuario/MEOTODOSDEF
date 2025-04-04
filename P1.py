@@ -67,7 +67,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Metricas básicas y rendimientos", "Var
 # Título en la barra lateral
 st.sidebar.title("Analizador de Métricas")
 # Crea un cuadro de texto en la barra lateral para ingresar los símbolos de acciones 
-simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "NVDA")
+simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "SPY")
 # Convierte el texto ingresado en una lista de símbolos
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 
