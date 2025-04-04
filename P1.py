@@ -67,7 +67,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["Metricas básicas y rendimientos", "Var
 # Título en la barra lateral
 st.sidebar.title("Analizador de Métricas")
 # Crea un cuadro de texto en la barra lateral para ingresar los símbolos de acciones 
-simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,NVDA")
+simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,GOOGL,MSFT,AMZN,NVDA")
 # Convierte el texto ingresado en una lista de símbolos
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 
@@ -282,110 +282,57 @@ def calcular_cvar_parametrico(rendimientos, alpha):
 with tab3:
     st.header(f"VaR y CVaR para el activo: {selected_asset} con Rolling Windows (Histórico y Paramétrico)")
 
-    window_size = 252
+    # Nivel de confianza
+    alpha_95 = 0.95
+    alpha_99 = 0.99
 
-    returns_series = df_rendimientos[selected_asset].dropna()
+    # Selección del tamaño de ventana
+    window_size = st.slider("Seleccione tamaño de la ventana", 1, 252, 252)
 
-    niveles_confianza = [0.95, 0.975, 0.99]
+    # Cálculo con método HISTÓRICO
+    df_var_hist_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_historico(x, alpha_95), raw=True)
+    df_var_hist_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_historico(x, alpha_99), raw=True)
+    df_cvar_hist_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_historico(x, alpha_95), raw=True)
+    df_cvar_hist_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_historico(x, alpha_99), raw=True)
 
-    metodos = ["Normal", "t-Student", "Histórico", "Monte Carlo"]
+    # Cálculo con método PARAMÉTRICO
+    df_var_param_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_parametrico(x, alpha_95), raw=True)
+    df_var_param_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_parametrico(x, alpha_99), raw=True)
+    df_cvar_param_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_parametrico(x, alpha_95), raw=True)
+    df_cvar_param_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_parametrico(x, alpha_99), raw=True)
+    # Cálculo con método PARAMÉTRICO
+    df_var_param_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_parametrico(x, alpha), raw=True)
+    df_var_param_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_var_parametrico(x, alpha), raw=True)
+    df_cvar_param_95 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_parametrico(x, alpha), raw=True)
+    df_cvar_param_99 = df_rendimientos.rolling(window=window_size).apply(lambda x: calcular_cvar_parametrico(x, alpha), raw=True)
 
-    colores = {
-        "Normal": "blue",
-        "t-Student": "orange",
-        "Histórico": "green",
-        "Monte Carlo": "red"
-    }
+    # Gráfico para método HISTÓRICO
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_var_hist_95, label="VaR 95% (Histórico)", color='red', linestyle='--')
+    ax.plot(df_var_hist_99, label="VaR 99% (Histórico)", color='blue', linestyle='--')
+    ax.plot(df_cvar_hist_95, label="CVaR 95% (Histórico)", color='purple', linestyle='-')
+    ax.plot(df_cvar_hist_99, label="CVaR 99% (Histórico)", color='orange', linestyle='-')
+    
+    ax.set_title(f"VaR y CVaR de:  {selected_asset} - Método Histórico")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("Valor en Riesgo")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
 
-    resultados_finales = {}
+    # Gráfico para método PARAMÉTRICO
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_var_param_95, label="VaR 95% (Paramétrico)", color='red', linestyle='--')
+    ax.plot(df_var_param_99, label="VaR 99% (Paramétrico)", color='blue', linestyle='--')
+    ax.plot(df_cvar_param_95, label="CVaR 95% (Paramétrico)", color='purple', linestyle='-')
+    ax.plot(df_cvar_param_99, label="CVaR 99% (Paramétrico)", color='orange', linestyle='-')
 
-    for alpha in niveles_confianza:
-
-        tail_prob = 1 - alpha
-        conf_label = f"{alpha*100:.3g}"
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        st.subheader(f"Series de VaR y CVaR para nivel de confianza {conf_label}%")
-
-        for metodo in metodos:
-
-            var_series = []
-            cvar_series = []
-
-            for i in range(window_size, len(returns_series)):
-
-                window_data = returns_series.iloc[i-window_size:i]
-                mean = window_data.mean()
-                std = window_data.std()
-
-                if metodo == "Normal":
-                    z = stats.norm.ppf(tail_prob)
-                    VaR_val = - (mean + std * z)
-                    ES_val = -mean + std * (stats.norm.pdf(z) / tail_prob)
-
-                elif metodo == "t-Student":
-                    df_fit, loc_fit, scale_fit = stats.t.fit(window_data)
-                    q_t = stats.t.ppf(tail_prob, df_fit, loc=loc_fit, scale=scale_fit)
-                    VaR_val = - q_t
-
-                    try:
-                        E_xt = stats.t.expect(
-                            lambda x: x,
-                            args=(df_fit,),
-                            loc=loc_fit,
-                            scale=scale_fit,
-                            lb=-np.inf,
-                            ub=q_t,
-                            conditional=True
-                        )
-                        ES_val = - E_xt
-                    except Exception:
-                        sim_t = loc_fit + scale_fit * np.random.standard_t(df_fit, size=10000)
-                        ES_val = - sim_t[sim_t <= q_t].mean()
-
-                elif metodo == "Histórico":
-                    q_hist = np.quantile(window_data, tail_prob)
-                    VaR_val = - q_hist
-                    ES_val = - window_data[window_data <= q_hist].mean()
-
-                else:  # Monte Carlo
-                    np.random.seed(42)
-                    sim_norm = np.random.normal(mean, std, 10000)
-                    q_mc = np.percentile(sim_norm, tail_prob * 100)
-                    VaR_val = - q_mc
-                    ES_val = - sim_norm[sim_norm <= q_mc].mean()
-
-                var_series.append(VaR_val)
-                cvar_series.append(ES_val)
-
-            fechas = returns_series.index[window_size:]
-            var_series = pd.Series(var_series, index=fechas)
-            cvar_series = pd.Series(cvar_series, index=fechas)
-
-            ax.plot(var_series, label=f"VaR {metodo}", color=colores.get(metodo, "black"), linewidth=1.2)
-            ax.plot(cvar_series, label=f"CVaR {metodo}", color=colores.get(metodo, "black"), linestyle="--", linewidth=1.2)
-
-            resultados_finales.setdefault(metodo, {})
-            resultados_finales[metodo][f"VaR {conf_label}%"] = var_series.iloc[-1]
-            resultados_finales[metodo][f"CVaR {conf_label}%"] = cvar_series.iloc[-1]
-
-        ax.set_title(f"VaR y CVaR ({conf_label}%) - Ventana 252 días - {selected_asset}")
-        ax.set_xlabel("Fecha")
-        ax.set_ylabel("Pérdida diaria estimada")
-        ax.legend(loc="upper right", ncol=2)
-        st.pyplot(fig)
-
-    df_resultados = pd.DataFrame(resultados_finales).T
-    st.write("**Resumen de VaR y CVaR estimados (último valor de cada serie)**")
-    st.dataframe(df_resultados.style.format("{:.2%}"))
-
-
-
-
-
-
-
+    ax.set_title(f"VaR y CVaR de:  {selected_asset}- Método Paramétrico")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("Valor en Riesgo")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
 
 
 # Pestaña 4
@@ -445,4 +392,3 @@ with tab5:
     ax.legend()
     ax.grid(True)
     st.pyplot(fig)
-
